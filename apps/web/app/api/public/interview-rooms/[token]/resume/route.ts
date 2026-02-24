@@ -1,0 +1,18 @@
+import { env } from '../../../../../lib/env';
+
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params;
+  const { ROZGA_API_BASE_URL } = env();
+
+  const formData = await req.formData();
+
+  const upstream = await fetch(`${ROZGA_API_BASE_URL}/api/v1/public/interview-rooms/${encodeURIComponent(token)}/resume`, {
+    method: 'POST',
+    body: formData,
+    cache: 'no-store',
+  });
+
+  const contentType = upstream.headers.get('content-type') ?? 'application/json';
+  const body = await upstream.arrayBuffer();
+  return new Response(body, { status: upstream.status, headers: { 'content-type': contentType } });
+}

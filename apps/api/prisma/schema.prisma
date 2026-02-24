@@ -1,0 +1,506 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  Admin
+  HR
+  Interviewer
+  Employee
+  Candidate
+}
+
+enum InterviewMode {
+  ONLINE
+  OFFLINE
+}
+
+enum InterviewRecommendation {
+  STRONG_YES
+  YES
+  MAYBE
+  NO
+  STRONG_NO
+}
+
+enum CampusStageKind {
+  GD_OFFLINE
+  AI_INTERVIEW
+  TECH_TEST
+  TECH_ROUND_ONLINE
+  TECH_ROUND_OFFLINE
+}
+
+enum AiInterviewSessionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum AiInterviewSpeaker {
+  ASSISTANT
+  CANDIDATE
+  SYSTEM
+}
+
+enum AiInterviewTurnKind {
+  QUESTION
+  FOLLOW_UP
+  ANSWER
+  META
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                User[]
+  colleges             College[]
+  jobs                 JobRequisition[]
+  campusHiringFlows    CampusHiringFlow[]
+  campusBatches        CampusBatch[]
+  candidates           Candidate[]
+  gdGroups             GDGroup[]
+  gdEvaluations        GDEvaluation[]
+  interviewAssignments InterviewAssignment[]
+  interviewRooms       InterviewRoom[]
+  aiArtifacts          AIGeneratedArtifact[]
+  aiInterviewSessions  AiInterviewSession[]
+  aiInterviewEvaluations AiInterviewEvaluation[]
+  auditLogs            AuditLog[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  roles        Role[]
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  interviewerGdGroups  GDGroupInterviewer[]
+  interviewAssignments InterviewAssignment[]
+  gdEvaluations        GDEvaluation[]        @relation("GDEvaluationEvaluator")
+  aiInterviewSessionsStarted AiInterviewSession[] @relation("AiInterviewSessionStartedBy")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+model College {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  code      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campusFlows   CampusHiringFlow[]
+  campusBatches CampusBatch[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+// Global directory dataset (not tenant-scoped). Used only for searching/selecting colleges.
+model CollegeDirectoryEntry {
+  id             String   @id
+  universityId   String?
+  universityName String
+  collegeId      String?
+  collegeName    String
+  collegeType    String?
+  stateName      String?
+  districtName   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collegeName])
+  @@index([universityName])
+  @@index([stateName])
+  @@index([districtName])
+}
+
+model JobRequisition {
+  id          String   @id @default(uuid())
+  tenantId    String
+  title       String
+  description String
+  jdUrl       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campusBatches CampusBatch[]
+
+  @@index([tenantId])
+}
+
+model CampusHiringFlow {
+  id        String   @id @default(uuid())
+  tenantId  String
+  collegeId String
+  name      String
+  batchSize Int      @default(100)
+  isActive  Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  college College @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+
+  stages        CampusFlowStage[]
+  transitions   CampusFlowTransition[]
+  campusBatches CampusBatch[]
+
+  @@index([tenantId])
+  @@index([collegeId])
+}
+
+model CampusFlowStage {
+  id     String          @id @default(uuid())
+  flowId String
+  key    String
+  name   String
+  kind   CampusStageKind
+  order  Int
+  config Json
+
+  flow CampusHiringFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@unique([flowId, key])
+  @@index([flowId])
+}
+
+model CampusFlowTransition {
+  id           String @id @default(uuid())
+  flowId       String
+  fromStageKey String
+  toStageKey   String
+  condition    Json
+
+  flow CampusHiringFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@index([flowId])
+}
+
+model CampusBatch {
+  id        String    @id @default(uuid())
+  tenantId  String
+  collegeId String
+  jobId     String
+  flowId    String
+  name      String
+  startsAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  college College          @relation(fields: [collegeId], references: [id], onDelete: Cascade)
+  job     JobRequisition   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  flow    CampusHiringFlow @relation(fields: [flowId], references: [id], onDelete: Restrict)
+
+  candidates           Candidate[]
+  gdGroups             GDGroup[]
+  interviewAssignments InterviewAssignment[]
+
+  @@index([tenantId])
+  @@index([collegeId])
+  @@index([jobId])
+}
+
+model Candidate {
+  id         String   @id @default(uuid())
+  tenantId   String
+  batchId    String
+  email      String?
+  phone      String?
+  fullName   String
+  rollNumber String?
+  department String?
+  resumeUrl  String?
+  normalized Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch  CampusBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  stageStates   CandidateStageState[]
+  gdMemberships GDGroupCandidate[]
+  gdEvaluations GDEvaluation[]
+  interviews    InterviewAssignment[]
+  aiArtifacts   AIGeneratedArtifact[]
+  aiInterviewSessions AiInterviewSession[]
+
+  @@index([tenantId])
+  @@index([batchId])
+}
+
+model CandidateStageState {
+  id          String   @id @default(uuid())
+  candidateId String
+  stageKey    String
+  status      String
+  payload     Json     @default("{}")
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, stageKey])
+  @@index([candidateId])
+}
+
+model GDGroup {
+  id        String   @id @default(uuid())
+  tenantId  String
+  batchId   String
+  name      String
+  capacity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch  CampusBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  candidates   GDGroupCandidate[]
+  interviewers GDGroupInterviewer[]
+  evaluations  GDEvaluation[]
+
+  @@index([tenantId])
+  @@index([batchId])
+}
+
+model GDGroupCandidate {
+  id          String @id @default(uuid())
+  gdGroupId   String
+  candidateId String
+
+  gdGroup   GDGroup   @relation(fields: [gdGroupId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([gdGroupId, candidateId])
+  @@index([candidateId])
+}
+
+model GDGroupInterviewer {
+  id        String @id @default(uuid())
+  gdGroupId String
+  userId    String
+
+  gdGroup GDGroup @relation(fields: [gdGroupId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([gdGroupId, userId])
+  @@index([userId])
+}
+
+model GDEvaluation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  gdGroupId   String
+  candidateId String
+  evaluatorId String
+  shortlisted Boolean
+  metrics     Json     @default("{}")
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  gdGroup   GDGroup   @relation(fields: [gdGroupId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  evaluator User      @relation("GDEvaluationEvaluator", fields: [evaluatorId], references: [id], onDelete: Restrict)
+
+  @@unique([gdGroupId, candidateId, evaluatorId])
+  @@index([tenantId])
+}
+
+model InterviewAssignment {
+  id            String        @id @default(uuid())
+  tenantId      String
+  batchId       String
+  candidateId   String
+  interviewerId String
+  mode          InterviewMode
+  scheduledAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch       CampusBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  candidate   Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  interviewer User        @relation(fields: [interviewerId], references: [id], onDelete: Restrict)
+
+  feedback InterviewFeedback?
+  room     InterviewRoom?
+  aiInterviewSessions AiInterviewSession[]
+
+  @@index([tenantId])
+  @@index([interviewerId])
+  @@index([candidateId])
+}
+
+model AiInterviewSession {
+  id              String                 @id @default(uuid())
+  tenantId         String
+  candidateId      String
+  assignmentId     String?
+  startedByUserId  String?
+  roleTitle        String
+  status           AiInterviewSessionStatus @default(ACTIVE)
+
+  maxQuestions     Int
+  maxFollowUps     Int
+  maxTotalTurns    Int
+  state            Json                   @default("{}")
+
+  startedAt        DateTime               @default(now())
+  endedAt          DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate  Candidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assignment InterviewAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  startedBy  User?              @relation("AiInterviewSessionStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+
+  turns      AiInterviewTurn[]
+  evaluation AiInterviewEvaluation?
+
+  @@index([tenantId])
+  @@index([candidateId])
+  @@index([assignmentId])
+  @@index([startedByUserId])
+}
+
+model AiInterviewTurn {
+  id         String             @id @default(uuid())
+  sessionId  String
+  index      Int
+  kind       AiInterviewTurnKind
+  speaker    AiInterviewSpeaker
+  content    String
+  meta       Json               @default("{}")
+  createdAt  DateTime           @default(now())
+
+  session AiInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, index])
+  @@index([sessionId])
+}
+
+model AiInterviewEvaluation {
+  id                   String   @id @default(uuid())
+  tenantId              String
+  sessionId             String   @unique
+  model                String
+  technicalDepthScore   Int
+  problemSolvingScore   Int
+  communicationScore    Int
+  strengths             Json     @default("[]")
+  weaknesses            Json     @default("[]")
+  summary               String
+  raw                   Json     @default("{}")
+  createdAt             DateTime @default(now())
+
+  tenant  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  session AiInterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model InterviewRoom {
+  id                 String   @id @default(uuid())
+  tenantId            String
+  assignmentId        String   @unique
+  candidateTokenHash  String   @unique
+  expiresAt           DateTime?
+  endedAt             DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignment InterviewAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([assignmentId])
+}
+
+model InterviewFeedback {
+  id             String                  @id @default(uuid())
+  assignmentId   String                  @unique
+  recommendation InterviewRecommendation
+  scores         Json                    @default("{}")
+  notes          String?
+  createdAt      DateTime                @default(now())
+
+  assignment InterviewAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+}
+
+model AIGeneratedArtifact {
+  id          String   @id @default(uuid())
+  tenantId    String
+  candidateId String
+  kind        String
+  model       String
+  input       Json
+  output      Json
+  createdAt   DateTime @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([candidateId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  meta        Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([actorUserId])
+}

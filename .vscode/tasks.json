@@ -1,0 +1,51 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Dev: API (@rozga/api)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"-w",
+				"@rozga/api",
+				"run",
+				"start:dev"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Dev: Web (@rozga/web)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"-w",
+				"@rozga/web",
+				"run",
+				"dev"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Dev: API + Web",
+			"dependsOn": [
+				"Dev: API (@rozga/api)",
+				"Dev: Web (@rozga/web)"
+			],
+			"dependsOrder": "parallel"
+		}
+	]
+}
